@@ -1,0 +1,6 @@
+{
+  "name": "BioGate Sentinel",
+  "description": "Advanced Dual-Biometric MFA (Face & Voice) featuring Covert Duress Protocol for Role-Based Access Control.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["biometrics", "mfa", "rbac"]
+}
