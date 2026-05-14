@@ -121,6 +121,8 @@ export default function ScannerUI() {
   const [authResult, setAuthResult]     = useState<AuthResponse | null>(null);
   const [isDuress, setIsDuress]         = useState(false);
   const [showDuressPopup, setShowDuressPopup] = useState(false);
+  const [isBooting, setIsBooting] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
   const [logs, setLogs]                 = useState<LogEntry[]>(INITIAL_LOGS);
   const [currentTime, setCurrentTime]   = useState(getTimeString());
   const [phraseVisible, setPhraseVisible] = useState(false);
@@ -144,17 +146,35 @@ export default function ScannerUI() {
 
   // ── Camera ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    // 1. TAMBAHKAN IF: Hanya eksekusi jika tombol sudah diklik
     if (hasStarted) {
-      if (navigator.mediaDevices?.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({ video: true })
-          .then(stream => { if (videoRef.current) videoRef.current.srcObject = stream; })
-          .catch(() => {});
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError(true);
+        setPhase('face_denied');
+        speak('Camera module is not supported on this browser.');
+        return;
       }
+
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+          setCameraError(false);
+
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        })
+        .catch(() => {
+          setCameraError(true);
+          setPhase('face_denied');
+          speak('Camera access denied. Please allow camera permission to continue biometric scanning.');
+        });
     }
+
     return () => {
-      if (videoRef.current?.srcObject)
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+      if (videoRef.current?.srcObject) {
+        (videoRef.current.srcObject as MediaStream)
+          .getTracks()
+          .forEach(t => t.stop());
+      }
     };
   }, [hasStarted]);
 
@@ -530,6 +550,57 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
   // ── Scan box / badge color helpers ───────────────────────────────────────
   const boxRed    = isDenied;
   const cornerCls = boxRed ? 'border-red-500' : 'border-[var(--accent)]';
+  const getStepStatus = (step: 'face' | 'voice' | 'result') => {
+  if (!hasStarted) return 'STANDBY';
+
+  if (step === 'face') {
+    return phase === 'scanning' || phase === 'face_found' || phase === 'face_denied'
+      ? 'ACTIVE'
+      : 'DONE';
+  }
+
+  if (step === 'voice') {
+    if (phase === 'voice') return 'ACTIVE';
+    if (phase === 'result') return 'DONE';
+    return 'LOCKED';
+  }
+
+  if (step === 'result') {
+    return phase === 'result' ? 'ACTIVE' : 'LOCKED';
+  }
+
+  return 'LOCKED';
+};
+
+const StepBadge = ({
+  number,
+  label,
+  status,
+}: {
+  number: string;
+  label: string;
+  status: string;
+}) => {
+  const isActive = status === 'ACTIVE';
+  const isDone = status === 'DONE';
+
+  return (
+    <div
+      className={`flex flex-1 items-center justify-between border px-3 py-2 font-mono text-[10px] tracking-widest transition-all ${
+        isActive
+          ? 'border-[var(--accent)] bg-[#00ff88]/10 text-[var(--accent)] shadow-[0_0_15px_rgba(0,255,136,0.25)]'
+          : isDone
+            ? 'border-emerald-900/70 bg-emerald-950/20 text-emerald-700'
+            : 'border-slate-800 bg-black/40 text-slate-600'
+      }`}
+    >
+      <span>
+        [{number}] {label}
+      </span>
+      <span>{status}</span>
+    </div>
+  );
+};
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--text-primary)] flex flex-col font-sans relative">
@@ -571,26 +642,111 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
       </div>
     )}
 
-      {/* ========================================== */}
-      {/* OVERLAY: TAP TO START (Menutupi seluruh layar) */}
-      {/* ========================================== */}
-      {!hasStarted && (
-        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-[var(--bg)]">
-          <Shield className="w-24 h-24 text-[var(--accent)] animate-pulse mb-8 opacity-50" />
-          <h1 className="font-mono font-extrabold text-2xl md:text-4xl text-[var(--accent)] tracking-[10px] mb-12 text-center drop-shadow-[0_0_15px_rgba(0,255,136,0.3)]">
-            BIOGATE SENTINEL
-          </h1>
-          
-          <button 
-            onClick={() => {
-              setHasStarted(true);
-              speak("System initialized. Calibrating biometric sensors.");
-            }}
-            className="bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-black border border-[var(--accent)] transition-all duration-300 px-8 py-4 text-sm md:text-lg font-mono font-bold tracking-[3px] flex items-center gap-3 shadow-[0_0_15px_rgba(0,255,136,0.2)] hover:shadow-[0_0_25px_rgba(0,255,136,0.6)]"
-          >
-            <Fingerprint className="w-6 h-6" />
-            [ TAP TO INITIALIZE ]
-          </button>
+    {isBooting && (
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/95 backdrop-blur-sm">
+          <div className="w-[90%] max-w-2xl border border-[var(--accent)] bg-black/80 p-8 text-center font-mono shadow-[0_0_40px_rgba(0,255,136,0.35)]">
+            <div className="mb-4 text-[10px] font-black tracking-[0.5em] text-[var(--accent)]">
+              BIOGATE SENTINEL
+            </div>
+
+            <h1 className="mb-4 text-2xl md:text-4xl font-black tracking-widest text-[var(--accent)] neon-text">
+              SYSTEM BOOTING
+            </h1>
+
+            <p className="mb-6 text-xs tracking-[0.35em] text-[var(--text-secondary)]">
+              CALIBRATING BIOMETRIC SENSOR...
+            </p>
+
+            <div className="mx-auto mb-4 h-2 w-full max-w-md overflow-hidden border border-[var(--accent)] bg-black">
+              <div className="h-full animate-[bootLoading_1.6s_linear_forwards] bg-[var(--accent)] shadow-[0_0_15px_rgba(0,255,136,0.9)]"></div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 text-left text-[10px] tracking-widest text-emerald-400/80 md:grid-cols-2">
+              <div>&gt; CAMERA_MODULE: INITIALIZING</div>
+              <div>&gt; FACE_MODEL: STANDBY</div>
+              <div>&gt; VOICE_AUTH: LOCKED</div>
+              <div>&gt; VAULT_ACCESS: SEALED</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OVERLAY: TAP TO START */}
+      {!hasStarted && !isBooting && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center overflow-hidden bg-[var(--bg)]">
+          {/* Grid Background */}
+          <div className="absolute inset-0 opacity-20">
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(0,255,136,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,136,0.08)_1px,transparent_1px)] bg-[size:42px_42px]" />
+          </div>
+
+          {/* Glow Background */}
+          <div className="absolute h-[420px] w-[420px] rounded-full bg-[var(--accent)]/10 blur-[120px]" />
+
+          {/* Corner Frame */}
+          <div className="absolute left-8 top-8 h-24 w-24 border-l border-t border-[var(--accent)] opacity-50" />
+          <div className="absolute right-8 top-8 h-24 w-24 border-r border-t border-[var(--accent)] opacity-50" />
+          <div className="absolute bottom-8 left-8 h-24 w-24 border-b border-l border-[var(--accent)] opacity-50" />
+          <div className="absolute bottom-8 right-8 h-24 w-24 border-b border-r border-[var(--accent)] opacity-50" />
+
+          {/* Center Card */}
+          <div className="relative z-10 flex w-[92%] max-w-3xl flex-col items-center border border-[var(--border)] bg-black/40 px-6 py-10 text-center shadow-[0_0_45px_rgba(0,255,136,0.12)] backdrop-blur-sm">
+            <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-[var(--accent)] bg-[var(--accent)]/5 shadow-[0_0_25px_rgba(0,255,136,0.25)]">
+              <Shield className="h-10 w-10 text-[var(--accent)] animate-pulse" />
+            </div>
+
+            <div className="mb-3 font-mono text-[10px] font-black tracking-[0.55em] text-[var(--text-secondary)]">
+              SECURE BIOMETRIC GATEWAY
+            </div>
+
+            <h1 className="font-mono text-3xl font-extrabold tracking-[0.35em] text-[var(--accent)] drop-shadow-[0_0_18px_rgba(0,255,136,0.35)] md:text-5xl">
+              BIOGATE SENTINEL
+            </h1>
+
+            <p className="mt-4 max-w-xl font-mono text-[10px] leading-relaxed tracking-[0.25em] text-[var(--text-secondary)]">
+              FACE RECOGNITION // VOICE SIGNATURE VERIFICATION // SECURE VAULT ACCESS
+            </p>
+
+            <div className="mt-8 grid w-full grid-cols-1 gap-3 font-mono text-[10px] tracking-widest md:grid-cols-3">
+              <div className="border border-[var(--border)] bg-black/50 px-4 py-3 text-left">
+                <div className="mb-1 text-[var(--text-secondary)]">FACE_ID_MODULE</div>
+                <div className="text-[var(--accent)]">STANDBY</div>
+              </div>
+
+              <div className="border border-[var(--border)] bg-black/50 px-4 py-3 text-left">
+                <div className="mb-1 text-[var(--text-secondary)]">VOICE_SIGNATURE</div>
+                <div className="text-yellow-500">LOCKED</div>
+              </div>
+
+              <div className="border border-[var(--border)] bg-black/50 px-4 py-3 text-left">
+                <div className="mb-1 text-[var(--text-secondary)]">VAULT_ACCESS</div>
+                <div className="text-red-400">SEALED</div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                setCameraError(false);
+                setIsBooting(true);
+                speak("System booting. Calibrating biometric sensors.");
+
+                setTimeout(() => {
+                  setHasStarted(true);
+                  setIsBooting(false);
+                  speak("Scanner active. Please face the camera.");
+                }, 1600);
+              }}
+              className="group relative mt-8 flex cursor-pointer items-center gap-3 overflow-hidden border border-[var(--accent)] bg-[var(--accent)]/10 px-8 py-4 font-mono text-sm font-bold tracking-[0.25em] text-[var(--accent)] shadow-[0_0_20px_rgba(0,255,136,0.2)] transition-all duration-300 hover:-translate-y-1 hover:scale-[1.03] hover:bg-[var(--accent)] hover:text-black hover:shadow-[0_0_35px_rgba(0,255,136,0.75)] active:scale-[0.98]"
+            >
+              <span className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+
+              <Fingerprint className="relative z-10 h-5 w-5 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-110" />
+              <span className="relative z-10">[ TAP TO INITIALIZE ]</span>
+            </button>
+
+            <div className="mt-6 border border-[var(--border)] bg-black/30 px-4 py-2 font-mono text-[9px] tracking-[0.3em] text-[var(--text-secondary)]">
+              PROTOTYPE_MODE // LOCAL BIOMETRIC AUTHENTICATION
+            </div>
+          </div>
         </div>
       )}
 
@@ -622,16 +778,49 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
         </div>
       </header>
 
+      <div className="relative z-20 grid grid-cols-1 gap-2 border-b border-[var(--border)] bg-black/40 px-4 py-2 md:grid-cols-3">
+        <StepBadge number="01" label="FACE_SCAN" status={getStepStatus('face')} />
+        <StepBadge number="02" label="VOICE_AUTH" status={getStepStatus('voice')} />
+        <StepBadge number="03" label="ACCESS_RESULT" status={getStepStatus('result')} />
+      </div>
+
       {/* ── Main ──────────────────────────────────────────────────────────── */}
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_320px] overflow-hidden">
 
         {/* ── Camera / Scanner View ──────────────────────────────────────── */}
-        <section className="relative bg-black border-r border-[var(--border)] overflow-hidden h-full flex items-center justify-center">
-          <video ref={videoRef} autoPlay muted playsInline
-            className="w-full h-full object-cover opacity-75"
-            style={{ filter: 'grayscale(20%) contrast(1.2)' }} />
-          <div className="absolute inset-0 pointer-events-none"
-            style={{ background: 'radial-gradient(circle, transparent 40%, rgba(2,6,23,0.4) 100%)' }} />
+              <section className="relative bg-black border-r border-[var(--border)] overflow-hidden h-full flex items-center justify-center">
+        <video ref={videoRef} autoPlay muted playsInline
+          className="w-full h-full object-cover opacity-75"
+          style={{ filter: 'grayscale(20%) contrast(1.2)' }} />
+
+        {cameraError && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/85 backdrop-blur-sm">
+            <div className="w-[90%] max-w-xl border border-red-500/60 bg-red-950/20 p-6 text-center font-mono shadow-[0_0_35px_rgba(239,68,68,0.35)]">
+              <div className="mb-3 text-xs font-black tracking-[0.4em] text-red-400">
+                CAMERA MODULE ERROR
+              </div>
+
+              <h2 className="mb-3 text-2xl font-black tracking-widest text-red-500">
+                CAMERA ACCESS REQUIRED
+              </h2>
+
+              <p className="mb-5 text-xs leading-relaxed tracking-widest text-red-200/80">
+                ALLOW CAMERA PERMISSION TO CONTINUE BIOMETRIC SCANNING.
+              </p>
+
+              <button
+                onClick={() => {
+                  setCameraError(false);
+                  setHasStarted(false);
+                  setPhase('scanning');
+                }}
+                className="border border-red-500 px-5 py-3 text-[10px] font-black tracking-[0.3em] text-red-300 transition-all hover:bg-red-500 hover:text-black"
+              >
+                RETURN TO INITIAL PAGE
+              </button>
+            </div>
+          </div>
+        )}
 
           {/* Scan box */}
           <div className={`absolute top-[15%] left-[25%] w-1/2 h-[60%] border-2 rounded-lg pointer-events-none transition-colors duration-500

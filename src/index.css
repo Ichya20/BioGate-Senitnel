@@ -98,6 +98,15 @@ body {
   }
 }
 
+@keyframes bootLoading {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
 /* Scrollbar Custom */
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0, 255, 136, 0.1); }
