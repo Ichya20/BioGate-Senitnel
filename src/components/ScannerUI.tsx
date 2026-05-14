@@ -61,6 +61,51 @@ function speak(text: string) {
   window.speechSynthesis.speak(utterance);
 }
 
+function getUserPassphrase(userName: string): string {
+  if (userName.includes("Ichya")) return "IZIN MASUK";
+  if (userName.includes("Abid")) return "AKSES KEAMANAN";
+  if (userName.includes("Iklil")) return "JARINGAN NETWORK";
+  if (userName.includes("Nathan")) return "DATA DATABASE";
+  if (userName.includes("Nashir")) return "PROTOKOL ANALISIS";
+  if (userName.includes("Arif")) return "TAMPILAN SISTEM";
+  return "AKSES MASUK";
+}
+
+function playDuressAlarm(durationMs = 5000) {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const audioContext = new AudioContextClass();
+
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(850, audioContext.currentTime);
+
+    gainNode.gain.setValueAtTime(0.0001, audioContext.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.25, audioContext.currentTime + 0.05);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.start();
+
+    const interval = window.setInterval(() => {
+      oscillator.frequency.setValueAtTime(850, audioContext.currentTime);
+      oscillator.frequency.setValueAtTime(1150, audioContext.currentTime + 0.2);
+    }, 400);
+
+    window.setTimeout(() => {
+      window.clearInterval(interval);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.1);
+      oscillator.stop(audioContext.currentTime + 0.15);
+      window.setTimeout(() => audioContext.close(), 300);
+    }, durationMs);
+  } catch (error) {
+    console.error('Duress alarm failed:', error);
+  }
+}
+
 export default function ScannerUI() {
   const navigate = useNavigate();
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -75,6 +120,7 @@ export default function ScannerUI() {
   const [transcript, setTranscript]     = useState('');
   const [authResult, setAuthResult]     = useState<AuthResponse | null>(null);
   const [isDuress, setIsDuress]         = useState(false);
+  const [showDuressPopup, setShowDuressPopup] = useState(false);
   const [logs, setLogs]                 = useState<LogEntry[]>(INITIAL_LOGS);
   const [currentTime, setCurrentTime]   = useState(getTimeString());
   const [phraseVisible, setPhraseVisible] = useState(false);
@@ -162,75 +208,175 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
   const user = selectedUserRef.current;
   if (!user) return;
 
-  // 1. KITA DEFINISIKAN DULU: Apa itu recognizedText (Teks yang didengar Mic)
   const recognizedText = spokenPhrase.toLowerCase().trim();
+
   let isMatch = false;
   let assignedRole = 'Authorized Agent';
 
-  // ── LOGIKA KATA SANDI & ROLE SPESIFIK TIAP ANGGOTA ──
-    
-    if (user.name.includes("Ichya")) {
-      isMatch = recognizedText.includes("izin") || recognizedText.includes("masuk");
-      assignedRole = 'System Lead';
-    
-    } else if (user.name.includes("Abid")) {
-      isMatch = recognizedText.includes("akses") || recognizedText.includes("keamanan");
-      assignedRole = 'Security Architect';
-    
-    } else if (user.name.includes("Iklil")) {
-      isMatch = recognizedText.includes("jaringan") || recognizedText.includes("network");
-      assignedRole = 'Network Specialist';
-    
-    } else if (user.name.includes("Nathan")) {
-      isMatch = recognizedText.includes("data") || recognizedText.includes("database");
-      assignedRole = 'DB Specialist';
-    
-    } else if (user.name.includes("Nashir")) {
-      isMatch = recognizedText.includes("protokol") || recognizedText.includes("analisis");
-      assignedRole = 'Protocol Analyst';
-    
-    } else if (user.name.includes("Arif")) {
-      isMatch = recognizedText.includes("tampilan") || recognizedText.includes("sistem");
-      assignedRole = 'UI/UX Specialist';
-    
-    } else {
-      isMatch = recognizedText.includes("akses") || recognizedText.includes("masuk");
-      assignedRole = 'Standard User';
-    }
+  if (user.name.includes("Ichya")) {
+    isMatch = recognizedText.includes("izin") || recognizedText.includes("masuk");
+    assignedRole = 'System Lead';
 
-    // ── JIKA SUARA COCOK DENGAN SANDI MASING-MASING ──
-    if (isMatch) {
-      setAuthResult({
-        status: 'success',
-        // Error hilang karena kita pakai variabel lokal assignedRole
-        user: { name: user.name, role: assignedRole } 
-      });
-      setIsDuress(false);
-      setPhase('result');
-      
-      // AI sekarang nyebutin jabatan, bukan cuma nama
-      speak(`Access Granted. Welcome back, ${assignedRole} ${user.name}`);
-  
-      // Catat log sukses
-      const newLog: LogEntry = {
-        time: getTimeString(),
-        status: 'GRANTED',
-        user: user.name[0] + '. ' + user.name.split(' ').slice(-1)[0],
-      };
-      setLogs(prev => [newLog, ...prev].slice(0, 12));
-  
-    // PINDAH KE HALAMAN RAHASIA (Sambil bawa data nama)
-    setTimeout(() => {
-      navigate('/secret-vault', { state: { agentName: user.name } }); 
-    }, 4000);
+  } else if (user.name.includes("Abid")) {
+    isMatch = recognizedText.includes("akses") || recognizedText.includes("keamanan");
+    assignedRole = 'Security Architect';
+
+  } else if (user.name.includes("Iklil")) {
+    isMatch = recognizedText.includes("jaringan") || recognizedText.includes("network");
+    assignedRole = 'Network Specialist';
+
+  } else if (user.name.includes("Nathan")) {
+    isMatch = recognizedText.includes("data") || recognizedText.includes("database");
+    assignedRole = 'DB Specialist';
+
+  } else if (user.name.includes("Nashir")) {
+    isMatch = recognizedText.includes("protokol") || recognizedText.includes("analisis");
+    assignedRole = 'Protocol Analyst';
+
+  } else if (user.name.includes("Arif")) {
+    isMatch = recognizedText.includes("tampilan") || recognizedText.includes("sistem");
+    assignedRole = 'UI/UX Specialist';
 
   } else {
-    // ── JIKA SUARA SALAH ATAU PAKAI SANDI ORANG LAIN ──
-      setAuthResult({ status: 'error', message: 'Voice signature mismatch.' });
-      setPhase('result');
-      speak(`Access Denied. Invalid voice signature for ${user.name}.`);
+    isMatch = recognizedText.includes("akses") || recognizedText.includes("masuk");
+    assignedRole = 'Standard User';
   }
-}, [navigate, speak]); // Pastikan 'navigate' ada di sini}, []);
+
+  const isDuressMatch =
+    recognizedText.includes("darurat") ||
+    recognizedText.includes("emergency") ||
+    recognizedText.includes("bahaya");
+
+  // DURESS: warning beberapa detik + alarm, lalu balik ke page awal
+  if (isDuressMatch) {
+    setAuthResult({
+      status: 'error',
+      message: 'DURESS PROTOCOL ACTIVE. UNKNOWN USER WARNING TRIGGERED.',
+    });
+
+    setIsDuress(true);
+    setIsUnknown(true);
+    setShowDuressPopup(true);
+    setIsListening(false);
+    setPhase('result');
+
+    recognitionRef.current?.stop();
+
+    speak('Access Denied. Duress protocol activated.');
+    playDuressAlarm(5000);
+
+    const newLog: LogEntry = {
+      time: getTimeString(),
+      status: 'DENIED',
+      user: 'DURESS_PROTOCOL_UNKNOWN_USER',
+    };
+
+    setLogs(prev => [newLog, ...prev].slice(0, 12));
+
+    sessionStorage.removeItem('biogate_auth');
+    sessionStorage.removeItem('biogate_agent');
+    sessionStorage.removeItem('biogate_role');
+    sessionStorage.removeItem('biogate_duress');
+
+    window.setTimeout(() => {
+      recognitionRef.current?.stop();
+
+      setHasStarted(false);
+      setPhase('scanning');
+      setConfidence(0);
+      setVectors(0);
+      setScanningIndex(0);
+      setSelectedUser(null);
+      setIsUnknown(false);
+      setTranscript('');
+      setAuthResult(null);
+      setIsDuress(false);
+      setShowDuressPopup(false);
+      setPhraseVisible(false);
+      setIsListening(false);
+
+      window.history.replaceState(null, '', '/');
+    }, 5000);
+
+    return;
+  }
+
+  // NORMAL: voice cocok, masuk vault
+  if (isMatch) {
+    setAuthResult({
+      status: 'success',
+      user: {
+        name: user.name,
+        role: assignedRole,
+      },
+    });
+
+    setIsDuress(false);
+    setShowDuressPopup(false);
+    setIsUnknown(false);
+    setPhase('result');
+
+    speak(`Access Granted. Welcome back, ${assignedRole} ${user.name}`);
+
+    const newLog: LogEntry = {
+      time: getTimeString(),
+      status: 'GRANTED',
+      user: user.name[0] + '. ' + user.name.split(' ').slice(-1)[0],
+    };
+
+    setLogs(prev => [newLog, ...prev].slice(0, 12));
+
+    window.setTimeout(() => {
+      sessionStorage.setItem('biogate_auth', 'true');
+      sessionStorage.setItem('biogate_agent', user.name);
+      sessionStorage.setItem('biogate_role', assignedRole);
+      sessionStorage.setItem('biogate_duress', 'false');
+
+      navigate('/secret-vault', {
+        state: {
+          agentName: user.name,
+          agentRole: assignedRole,
+        },
+      });
+    }, 4000);
+
+    return;
+  }
+
+  // VOICE SALAH BIASA
+  setAuthResult({
+    status: 'error',
+    message: 'Voice signature mismatch.',
+  });
+
+  setIsDuress(false);
+  setIsUnknown(false);
+  setPhase('result');
+
+  speak(`Access Denied. Invalid voice signature for ${user.name}.`);
+
+  const newLog: LogEntry = {
+    time: getTimeString(),
+    status: 'DENIED',
+    user: 'INVALID_VOICE_PATTERN',
+  };
+
+  setLogs(prev => [newLog, ...prev].slice(0, 12));
+
+  window.setTimeout(() => {
+    setPhase('scanning');
+    setConfidence(0);
+    setVectors(0);
+    setScanningIndex(0);
+    setSelectedUser(null);
+    setIsUnknown(false);
+    setTranscript('');
+    setAuthResult(null);
+    setIsDuress(false);
+    setPhraseVisible(false);
+    setIsListening(false);
+  }, 4000);
+}, [navigate]);
 
   useEffect(() => { verifyMFARef.current = verifyMFA; }, [verifyMFA]);
 
@@ -274,25 +420,50 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
         } else {
           // Wajah Dikenali
           const identifiedName = topResult.className;
-          const displayUsers = users.length > 0 ? users : ALL_USERS;
-          
-          // Cocokkan nama class dari TM dengan data ALL_USERS
-          const userMatch = displayUsers.find(u => u.name.toLowerCase().includes(identifiedName.toLowerCase())) || displayUsers[0];
-          
-          setSelectedUser(userMatch);
-          setScanningIndex(displayUsers.findIndex(u => u.id === userMatch.id));
-          setPhase('face_found');
+      const displayUsers = users.length > 0 ? users : ALL_USERS;
 
-          speak(`Face recognized as ${userMatch.name}. Please provide voice authentication.`);
+      const normalizeName = (name: string) =>
+        name
+          .toLowerCase()
+          .replace(/[^a-z\s]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
 
-          // Lanjut ke verifikasi suara
-          setTimeout(() => {
-            setPhase('voice');
-            setPhraseVisible(false);
-            setTimeout(() => setPhraseVisible(true), 700);
-          }, 1800);
-          
-          return; // Hentikan loop karena sudah ketemu
+      const normalizedIdentifiedName = normalizeName(identifiedName);
+
+      // Cocokkan nama class dari TM dengan data ALL_USERS tanpa fallback ke user pertama
+        const userMatch = displayUsers.find((u) => {
+        const normalizedUserName = normalizeName(u.name);
+
+        return (
+          normalizedUserName === normalizedIdentifiedName ||
+          normalizedUserName.includes(normalizedIdentifiedName) ||
+          normalizedIdentifiedName.includes(normalizedUserName)
+        );
+      });
+
+      if (!userMatch) {
+        setIsUnknown(true);
+        setSelectedUser(null);
+        setPhase('face_denied');
+        speak('Access Denied. Identity mismatch detected.');
+        return;
+      }
+
+      setSelectedUser(userMatch);
+      setScanningIndex(displayUsers.findIndex(u => u.id === userMatch.id));
+      setPhase('face_found');
+
+      speak(`Face recognized as ${userMatch.name}. Please provide voice authentication.`);
+
+      // Lanjut ke verifikasi suara
+      setTimeout(() => {
+        setPhase('voice');
+        setPhraseVisible(false);
+        setTimeout(() => setPhraseVisible(true), 700);
+      }, 1800);
+
+      return; // Hentikan loop karena sudah ketemu // Hentikan loop karena sudah ketemu
         }
       }
 
@@ -362,6 +533,43 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--text-primary)] flex flex-col font-sans relative">
+       {showDuressPopup && (
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-sm">
+        <div className="relative w-[90%] max-w-2xl border-2 border-red-500 bg-red-950/30 p-8 text-center shadow-[0_0_40px_rgba(239,68,68,0.8)] animate-pulse">
+          <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-red-600 px-4 py-1 text-xs font-black tracking-[0.4em] text-white">
+            SECURITY ALERT
+          </div>
+
+          <div className="mb-4 text-6xl font-black text-red-500">
+            ⚠
+          </div>
+
+          <h1 className="mb-3 text-3xl md:text-5xl font-black tracking-widest text-red-500">
+            ACCESS DENIED
+          </h1>
+
+          <p className="mb-2 text-sm md:text-lg font-bold tracking-[0.3em] text-red-300">
+            DURESS PROTOCOL ACTIVE
+          </p>
+
+          <p className="text-xs md:text-sm tracking-widest text-red-200/80">
+            UNKNOWN USER WARNING TRIGGERED
+          </p>
+
+          <div className="mt-6 border border-red-500/40 bg-black/60 p-3 font-mono text-xs text-red-300">
+            SYSTEM LOCKDOWN // RETURNING TO INITIAL PAGE IN 5 SECONDS
+          </div>
+            <div className="mt-4 h-2 w-full overflow-hidden border border-red-500/40 bg-black">
+            <div className="h-full animate-[duressLoading_5s_linear_forwards] bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.9)]"></div>
+          </div>
+          <div className="mt-3 flex justify-center gap-2">
+            <span className="h-2 w-2 animate-ping rounded-full bg-red-500"></span>
+            <span className="h-2 w-2 animate-ping rounded-full bg-red-500 [animation-delay:150ms]"></span>
+            <span className="h-2 w-2 animate-ping rounded-full bg-red-500 [animation-delay:300ms]"></span>
+          </div>
+        </div>
+      </div>
+    )}
 
       {/* ========================================== */}
       {/* OVERLAY: TAP TO START (Menutupi seluruh layar) */}
@@ -570,7 +778,7 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
                 <div className="bg-[var(--bg)] border border-dashed border-[var(--border)] p-3 rounded-md text-center mb-3">
                   <div className="text-[9px] text-[var(--text-secondary)] uppercase tracking-widest mb-2">Ucapkan Passphrase:</div>
                   <div className="font-mono text-sm tracking-wider italic text-[var(--text-primary)]">
-                    {phraseVisible ? '"IZIN MASUK"' : '**************'}
+                    {phraseVisible ? `"${getUserPassphrase(selectedUser.name)}"` : '**************'}
                   </div>
                   <div className="flex items-center justify-center gap-[3px] h-[28px] mt-2">
                     {voiceBars.map((h, i) => (
@@ -631,7 +839,7 @@ const verifyMFA = useCallback(async (spokenPhrase: string) => {
                 {isDuress && (
                   <div className="mt-3 p-2 bg-red-500/10 border border-red-500/40 rounded text-[9px] font-mono text-red-400 tracking-wider flex items-center justify-center gap-2">
                     <ShieldAlert className="w-3 h-3" />
-                    DURESS PROTOCOL — SILENT ALARM SENT
+                    DURESS PROTOCOL ACTIVE — UNKNOWN USER WARNING TRIGGERED
                   </div>
                 )}
                 <button onClick={startAutoScan}
